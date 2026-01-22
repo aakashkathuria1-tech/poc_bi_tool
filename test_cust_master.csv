@@ -1,0 +1,11 @@
+customer_id,region,city,area_manager,zonal_manager
+C001,North,Delhi,AM_N1,ZM_North
+C002,North,Noida,AM_N1,ZM_North
+C003,North,Gurgaon,AM_N2,ZM_North
+C004,South,Bangalore,AM_S1,ZM_South
+C005,South,Chennai,AM_S2,ZM_South
+C006,South,Hyderabad,AM_S2,ZM_South
+C007,West,Mumbai,AM_W1,ZM_West
+C008,West,Pune,AM_W1,ZM_West
+C009,West,Ahmedabad,AM_W2,ZM_West
+C010,East,Kolkata,AM_E1,ZM_East

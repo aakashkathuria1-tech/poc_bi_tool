@@ -1,0 +1,11 @@
+product_id,category,sub_category
+P001,Electronics,Mobile
+P002,Electronics,Laptop
+P003,Electronics,Accessories
+P004,Home,Appliances
+P005,Home,Furniture
+P006,Fashion,Men
+P007,Fashion,Women
+P008,Fashion,Kids
+P009,Auto,Accessories
+P010,Auto,SpareParts
