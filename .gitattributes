@@ -1,0 +1,12 @@
+# The sample CSVs were exported from Excel on Windows and are committed with
+# CRLF line endings. Never renormalize them - a checkout on Linux/macOS would
+# otherwise rewrite every byte and produce a repo-wide phantom diff.
+*.csv -text
+
+# Everything else: store LF in the repo, check out native on Windows.
+*.py    text diff=python
+*.md    text
+*.txt   text
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
