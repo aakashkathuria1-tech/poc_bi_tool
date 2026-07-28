@@ -1,12 +1,14 @@
-"""Health-check the poc_bi_tool sample data.
+"""Health-check the poc_bi_tool data.
 
 Two jobs:
 
 1. Prove the local environment works - if this runs clean, Python, the venv
-   and pandas are all wired up correctly.
-2. Report on the raw CSVs, including the known quirks that any code reading
-   this data has to deal with (Excel serial dates, zero-padding mismatch
-   between the transaction IDs and the master IDs, one all-blank row).
+   and the dependencies are all wired up correctly.
+2. Report on the data after cleaning, so problems surface here rather than in
+   a dashboard number nobody can explain.
+
+The cleaning itself lives in poc_bi.data, not here - one implementation, so
+this check and the dashboard can never disagree about what the data says.
 
 Usage (from the repo root, with the venv active):
 
@@ -20,6 +22,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
 try:
     import pandas as pd
 except ImportError:
@@ -29,16 +33,7 @@ except ImportError:
         "scripts\\setup.ps1 to create it."
     )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-TRANSACTIONS = REPO_ROOT / "test_trans_data.csv"
-TARGETS = REPO_ROOT / "test_month_targets.csv"
-CUSTOMERS = REPO_ROOT / "test_cust_master.csv"
-PRODUCTS = REPO_ROOT / "test_product_master.csv"
-
-# Excel on Windows counts days from this date (it treats 1900 as a leap year,
-# so the usable epoch is the 30th, not the 31st).
-EXCEL_EPOCH = "1899-12-30"
+from poc_bi import data, metrics  # noqa: E402
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -58,46 +53,15 @@ def fail(msg: str) -> None:
     print(f"  [FAIL] {msg}")
 
 
-def normalize_id(series: pd.Series) -> pd.Series:
-    """Collapse C001 / C0010 style IDs onto one zero-padded form.
-
-    The masters use C001..C010, the transaction and target files use
-    C001..C009 plus C0010. Splitting off the letter prefix and re-padding the
-    number makes both sides join.
-    """
-    prefix = series.str.slice(0, 1)
-    number = pd.to_numeric(series.str.slice(1), errors="coerce")
-    return prefix + number.map(lambda n: "" if pd.isna(n) else f"{int(n):03d}")
-
-
-def require(path: Path) -> None:
-    if not path.exists():
-        sys.exit(
-            f"Missing data file: {path}\n"
-            "Run this from the repo root, and check the CSVs were cloned "
-            "(they are large - confirm Git LFS is not required)."
-        )
-
-
-def load_transactions() -> pd.DataFrame:
+def check_transactions(paths: data.DataPaths) -> pd.DataFrame:
     print("\ntest_trans_data.csv")
-    df = pd.read_csv(TRANSACTIONS, dtype={"Cust_ID": str, "Prod_ID": str})
+    raw = pd.read_csv(paths.transactions)
+    df = data.load_transactions(paths)
 
-    # The header has a trailing comma, so pandas invents an unnamed final
-    # column. It is just a row counter - drop it.
-    unnamed = [c for c in df.columns if str(c).startswith("Unnamed:")]
-    if unnamed:
-        df = df.drop(columns=unnamed)
-        ok(f"dropped trailing unnamed column ({', '.join(unnamed)})")
+    dropped = len(raw) - len(df)
+    if dropped:
+        warn(f"dropped {dropped} blank row(s) during load")
 
-    raw_rows = len(df)
-    df = df.dropna(how="all")
-    if len(df) < raw_rows:
-        warn(f"dropped {raw_rows - len(df)} all-blank row(s)")
-
-    df["Date"] = pd.to_datetime(
-        pd.to_numeric(df["Date"], errors="coerce"), unit="D", origin=EXCEL_EPOCH
-    )
     if df["Date"].isna().any():
         fail(f"{int(df['Date'].isna().sum())} row(s) have an unparseable Date")
     else:
@@ -107,7 +71,6 @@ def load_transactions() -> pd.DataFrame:
         )
 
     for col in ("Qty", "MRP", "Cost", "Discount"):
-        df[col] = pd.to_numeric(df[col], errors="coerce")
         if df[col].isna().any():
             fail(f"{col} has {int(df[col].isna().sum())} non-numeric value(s)")
 
@@ -121,47 +84,32 @@ def load_transactions() -> pd.DataFrame:
         warn(f"{dupes} duplicate (Order No, Item No) pair(s)")
     else:
         ok("(Order No, Item No) is unique")
-
-    df["Cust_ID"] = normalize_id(df["Cust_ID"])
-    df["Prod_ID"] = normalize_id(df["Prod_ID"])
     return df
 
 
-def load_targets() -> pd.DataFrame:
+def check_targets(paths: data.DataPaths) -> pd.DataFrame:
     print("\ntest_month_targets.csv")
-    df = pd.read_csv(TARGETS, dtype={"Cust_ID": str, "Prod_ID": str})
-    df = df.dropna(how="all")
+    df = data.load_targets(paths)
 
-    df["Month"] = pd.to_datetime(df["Month"], format="%d-%b-%y", errors="coerce")
     if df["Month"].isna().any():
         fail(f"{int(df['Month'].isna().sum())} row(s) have an unparseable Month")
     else:
-        ok(
-            f"{len(df):,} rows, {df['Month'].min():%b %Y} "
-            f"to {df['Month'].max():%b %Y}"
-        )
+        ok(f"{len(df):,} rows, {df['Month'].min():%b %Y} to {df['Month'].max():%b %Y}")
 
-    df["Target"] = pd.to_numeric(df["Target"], errors="coerce")
     if df["Target"].isna().any():
         fail(f"{int(df['Target'].isna().sum())} row(s) have a non-numeric Target")
 
-    df["Cust_ID"] = normalize_id(df["Cust_ID"])
-    df["Prod_ID"] = normalize_id(df["Prod_ID"])
-
-    grain = int(df.duplicated(subset=["Cust_ID", "Prod_ID", "Month"]).sum())
-    if grain:
-        fail(f"{grain} duplicate (Cust_ID, Prod_ID, Month) row(s) - grain is not unique")
+    if df.duplicated(subset=["Cust_ID", "Prod_ID", "Month"]).any():
+        fail("duplicate (Cust_ID, Prod_ID, Month) rows - grain is not unique")
     else:
         ok("one target per customer / product / month")
     return df
 
 
-def load_masters() -> tuple[pd.DataFrame, pd.DataFrame]:
+def check_masters(paths: data.DataPaths) -> None:
     print("\nmaster files")
-    cust = pd.read_csv(CUSTOMERS, dtype={"customer_id": str})
-    prod = pd.read_csv(PRODUCTS, dtype={"product_id": str})
-    cust["customer_id"] = normalize_id(cust["customer_id"])
-    prod["product_id"] = normalize_id(prod["product_id"])
+    cust = data.load_customers(paths)
+    prod = data.load_products(paths)
 
     if cust["customer_id"].duplicated().any():
         fail("duplicate customer_id in test_cust_master.csv")
@@ -174,82 +122,70 @@ def load_masters() -> tuple[pd.DataFrame, pd.DataFrame]:
         f"{cust['area_manager'].nunique()} area managers"
     )
     ok(f"{len(prod)} products across {prod['category'].nunique()} categories")
-    return cust, prod
 
 
-def check_joins(
-    trans: pd.DataFrame,
-    targets: pd.DataFrame,
-    cust: pd.DataFrame,
-    prod: pd.DataFrame,
-) -> None:
+def check_joins(fact: pd.DataFrame) -> None:
     print("\nreferential integrity (after ID normalization)")
-    known_cust = set(cust["customer_id"])
-    known_prod = set(prod["product_id"])
-
-    for name, df, cust_col, prod_col in (
-        ("transactions", trans, "Cust_ID", "Prod_ID"),
-        ("targets", targets, "Cust_ID", "Prod_ID"),
-    ):
-        orphan_c = set(df[cust_col]) - known_cust
-        orphan_p = set(df[prod_col]) - known_prod
-        if orphan_c:
-            fail(f"{name}: customer IDs not in the master: {sorted(orphan_c)}")
+    for col, label in (("region", "customer"), ("category", "product")):
+        orphans = fact[fact[col].isna()]
+        if not orphans.empty:
+            key = "Cust_ID" if label == "customer" else "Prod_ID"
+            fail(
+                f"{len(orphans)} row(s) have a {label} ID not in the master: "
+                f"{sorted(orphans[key].dropna().unique())[:5]}"
+            )
         else:
-            ok(f"{name}: every customer ID resolves to the master")
-        if orphan_p:
-            fail(f"{name}: product IDs not in the master: {sorted(orphan_p)}")
-        else:
-            ok(f"{name}: every product ID resolves to the master")
+            ok(f"every {label} ID resolves to the master")
+
+    if fact["Cust_ID"].nunique() != 10 or fact["Prod_ID"].nunique() != 10:
+        warn(
+            f"expected 10 customers and 10 products, saw "
+            f"{fact['Cust_ID'].nunique()} and {fact['Prod_ID'].nunique()}"
+        )
 
 
-def summarize(trans: pd.DataFrame, targets: pd.DataFrame) -> None:
-    """A first cut at the numbers a BI layer would sit on top of."""
-    print("\nsample rollup (gross = Qty * MRP, net = gross less Discount)")
-    trans = trans.assign(
-        gross=trans["Qty"] * trans["MRP"],
-        net=trans["Qty"] * trans["MRP"] * (1 - trans["Discount"]),
-    )
-    print(f"  gross  {trans['gross'].sum():>16,.0f}")
-    print(f"  net    {trans['net'].sum():>16,.0f}")
-    print(f"  units  {trans['Qty'].sum():>16,.0f}")
-    # The Target column carries no unit of measure - it is ~4x total Qty, so
-    # it is probably not units. Confirm with the data owner before comparing.
-    print(f"  target {targets['Target'].sum():>16,.0f} (Target column, Apr 24 - Dec 25)")
-
-    overlap = trans[trans["Date"].dt.to_period("M").isin(
-        targets["Month"].dt.to_period("M")
-    )]
-    print(
-        f"\n  {len(overlap):,} of {len(trans):,} transactions "
-        f"({len(overlap) / len(trans):.0%}) fall inside the target window"
-    )
+def summarize(fact: pd.DataFrame, targets: pd.DataFrame) -> None:
+    print("\nsample rollup")
+    k = metrics.headline_kpis(fact)
+    print(f"  gross revenue {k['gross_revenue']:>16,.0f}")
+    print(f"  net revenue   {k['net_revenue']:>16,.0f}")
+    print(f"  gross profit  {k['gross_profit']:>16,.0f}  ({k['margin_pct']:.1f}% margin)")
+    print(f"  units         {k['units']:>16,.0f}")
+    print(f"  orders        {k['orders']:>16,.0f}")
+    print(f"\n  {metrics.coverage_note(fact, targets)}")
 
 
 def main() -> int:
-    for path in (TRANSACTIONS, TARGETS, CUSTOMERS, PRODUCTS):
-        require(path)
+    paths = data.DataPaths.samples()
+    if missing := paths.missing():
+        sys.exit(
+            "Missing data file(s):\n  "
+            + "\n  ".join(str(p) for p in missing)
+            + "\n\nRun this from the repo root."
+        )
 
-    print("=" * 62)
+    print("=" * 66)
     print("poc_bi_tool - data health check")
-    print(f"repo: {REPO_ROOT}")
+    print(f"repo: {data.REPO_ROOT}")
     print(f"pandas {pd.__version__} on Python {sys.version.split()[0]}")
-    print("=" * 62)
+    print("=" * 66)
 
-    trans = load_transactions()
-    targets = load_targets()
-    cust, prod = load_masters()
-    check_joins(trans, targets, cust, prod)
-    summarize(trans, targets)
+    check_transactions(paths)
+    targets = check_targets(paths)
+    check_masters(paths)
 
-    print("\n" + "=" * 62)
+    fact = data.build_fact(paths)
+    check_joins(fact)
+    summarize(fact, targets)
+
+    print("\n" + "=" * 66)
     if errors:
         print(f"FAILED - {len(errors)} error(s), {len(warnings)} warning(s)")
         for msg in errors:
             print(f"  - {msg}")
         return 1
     print(f"PASSED - environment and data are usable ({len(warnings)} warning(s))")
-    print("=" * 62)
+    print("=" * 66)
     return 0
 
 

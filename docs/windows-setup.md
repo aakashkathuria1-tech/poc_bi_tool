@@ -79,9 +79,9 @@ The transaction CSV is ~6 MB, so a clone takes a moment but needs no Git LFS.
 .\scripts\setup.ps1
 ```
 
-This creates `.venv\`, installs `requirements.txt` into it, and runs the data
-health check. It is safe to re-run; pass `-Force` to rebuild the venv from
-scratch.
+This creates `.venv\`, installs `requirements.txt` into it, runs the tests, and
+runs the data health check. It is safe to re-run; pass `-Force` to rebuild the
+venv from scratch, or `-SkipVerify` to skip the tests and health check.
 
 ### If PowerShell refuses to run the script
 
@@ -110,12 +110,34 @@ py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+pytest
 python scripts\verify_data.py
 ```
 
 ---
 
-## 4. Daily use
+## 4. Run the dashboard
+
+```powershell
+.\.venv\Scripts\streamlit.exe run app.py
+```
+
+It opens at <http://localhost:8501>. Stop it with `Ctrl+C`.
+
+> The first launch may prompt for an email address — that is Streamlit's
+> optional telemetry prompt. Press Enter to skip it. To silence it for good,
+> create `.streamlit\config.toml` with:
+> ```toml
+> [browser]
+> gatherUsageStats = false
+> ```
+
+> **Windows Firewall** may show a prompt the first time. Streamlit only needs
+> to listen on localhost, so you can safely decline public-network access.
+
+---
+
+## 5. Daily use
 
 Activate the environment in each new terminal:
 
@@ -126,19 +148,35 @@ Activate the environment in each new terminal:
 
 Your prompt gains a `(.venv)` prefix. Deactivate with `deactivate`.
 
-Re-run the health check any time:
+Then:
 
 ```powershell
-python scripts\verify_data.py
+streamlit run app.py             # dashboard
+pytest                           # 43 tests
+python scripts\verify_data.py    # data health check
+python scripts\export_clean.py   # clean data -> output\poc_bi_clean.xlsx
 ```
 
-Expected result: `PASSED - environment and data are usable (2 warning(s))`.
-The two warnings are known properties of the sample data, described in
-[Data notes](#data-notes) below.
+The health check should report
+`PASSED - environment and data are usable (2 warning(s))`. The two warnings
+are known properties of the sample data, described in [Data notes](#data-notes)
+below.
+
+### Exporting for Power BI or Excel
+
+`scripts\export_clean.py` writes the cleaned, joined fact table plus
+pre-built rollups. Point Power BI or Excel at its output rather than the raw
+CSVs — the quirks below are already handled and the IDs already join.
+
+```powershell
+python scripts\export_clean.py                 # output\poc_bi_clean.xlsx
+python scripts\export_clean.py --format csv    # one .csv per table
+python scripts\export_clean.py --out C:\reports
+```
 
 ---
 
-## 5. VS Code (optional)
+## 6. VS Code (optional)
 
 ```powershell
 winget install Microsoft.VisualStudioCode
@@ -154,8 +192,30 @@ will then activate the venv automatically in new terminals.
 ## Data notes
 
 The four CSVs in the repo root are the POC dataset. Anything reading them
-needs to handle the following - `scripts/verify_data.py` shows the fixes in
-working code.
+needs to handle the following - `src/poc_bi/data.py` implements every fix, and
+`tests/test_data.py` locks them in.
+
+### The sample data is synthetic and has no signal
+
+Measured, not assumed:
+
+| Checked | Result |
+| --- | --- |
+| Customer share of revenue | C001-C010 all ~10.0% |
+| Product share of revenue | P001-P010 all ~10.0% |
+| Monthly revenue | CV 0.038 - no trend, no seasonality |
+| `MRP` | ~1,978 distinct prices *per product* - not a price list |
+| `Qty` / `Discount` | uniform 1-5 / uniform 0-0.10 |
+| **`Target` vs actuals** | **correlation ~0.00** (qty -0.019, revenue 0.008) |
+
+`Target` is uniform random in [100, 1000] with no relationship to the
+transactions, so achievement lands near 15% and every month reads red. That
+is a property of the generator, not a business finding. The dashboard carries
+a banner saying so.
+
+Use this data to exercise the tool - volume, joins, date handling, drill
+paths - and swap in real extracts before drawing conclusions. Build a
+`DataPaths` with your own file locations and nothing downstream changes.
 
 ### Files
 
@@ -242,6 +302,21 @@ scanning, and re-run `.\scripts\setup.ps1 -Force`.
 
 **`verify_data.py` reports missing data files** - run it from the repo root,
 and confirm the four `.csv` files are present with `dir *.csv`.
+
+**`streamlit` is not recognized** - the venv is not active. Either activate it
+or call it by path: `.\.venv\Scripts\streamlit.exe run app.py`.
+
+**Port 8501 already in use** - an earlier Streamlit is still running. Either
+pick another port (`streamlit run app.py --server.port 8502`) or find and stop
+the old one: `netstat -ano | findstr :8501` then `taskkill /PID <pid> /F`.
+
+**`ModuleNotFoundError: No module named 'poc_bi'`** - run commands from the
+repo root. `app.py` and the scripts add `src\` to the path themselves, and
+pytest picks it up from `pyproject.toml`, but all of that is relative to the
+repo root.
+
+**`PermissionError` writing to `output\`** - the `.xlsx` is open in Excel.
+Close it and re-run, or pass `--out` a different directory.
 
 **Odd characters in the console output** - switch the terminal to UTF-8 with
 `chcp 65001`, or use Windows Terminal, which defaults to it.

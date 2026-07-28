@@ -115,6 +115,10 @@ Write-Ok 'requirements.txt installed'
 
 # --- 4. Verify ---------------------------------------------------------------
 if (-not $SkipVerify) {
+    Write-Step 'Running tests'
+    & $VenvPython -m pytest
+    if ($LASTEXITCODE -ne 0) { throw 'Tests failed (see above).' }
+
     Write-Step 'Running data health check'
     & $VenvPython (Join-Path $RepoRoot 'scripts\verify_data.py')
     if ($LASTEXITCODE -ne 0) {
@@ -125,10 +129,16 @@ if (-not $SkipVerify) {
 Write-Host "`nSetup complete." -ForegroundColor Green
 Write-Host @"
 
-Activate the environment in this terminal with:
-    .\.venv\Scripts\Activate.ps1
+Launch the dashboard:
+    .\.venv\Scripts\streamlit.exe run app.py
 
-If PowerShell blocks that with "running scripts is disabled", allow local
-scripts for your user once:
+Or activate the environment first, then use the tools directly:
+    .\.venv\Scripts\Activate.ps1
+    streamlit run app.py
+    pytest
+    python scripts\export_clean.py
+
+If PowerShell blocks activation with "running scripts is disabled", allow
+local scripts for your user once:
     Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 "@

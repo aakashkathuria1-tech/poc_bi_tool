@@ -70,6 +70,14 @@ if errorlevel 1 (
 
 REM --- 4. Verify --------------------------------------------------------------
 echo.
+echo ==^> Running tests
+"%VENV_PYTHON%" -m pytest
+if errorlevel 1 (
+    echo ERROR: tests failed.
+    exit /b 1
+)
+
+echo.
 echo ==^> Running data health check
 "%VENV_PYTHON%" "%REPO_ROOT%\scripts\verify_data.py"
 if errorlevel 1 (
@@ -78,6 +86,9 @@ if errorlevel 1 (
 )
 
 echo.
-echo Setup complete. Activate with:
+echo Setup complete. Launch the dashboard with:
+echo     .venv\Scripts\streamlit.exe run app.py
+echo.
+echo Or activate the environment first:
 echo     .venv\Scripts\activate.bat
 exit /b 0

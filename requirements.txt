@@ -7,3 +7,10 @@ numpy>=1.26,<3
 # The source CSVs came out of Excel (the Date column is still an Excel serial
 # number), so reading and writing .xlsx is expected work here.
 openpyxl>=3.1,<4
+
+# Dashboard.
+streamlit>=1.36,<2
+plotly>=5.22,<7
+
+# Tests.
+pytest>=8.0,<9
