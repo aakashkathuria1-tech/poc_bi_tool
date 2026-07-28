@@ -1,0 +1,16 @@
+[project]
+name = "poc-bi-tool"
+version = "0.1.0"
+description = "Sales performance BI proof of concept"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+# Puts src/ on sys.path so the tests import poc_bi without an install step -
+# one less thing to go wrong on a fresh Windows setup.
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 95
+target-version = "py310"
