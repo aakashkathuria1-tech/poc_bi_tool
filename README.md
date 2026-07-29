@@ -19,6 +19,20 @@ If PowerShell blocks the script, either allow local scripts once with
 `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, or run
 the `cmd.exe` fallback `scripts\setup.bat`.
 
+## Work from your phone
+
+To drive this machine from the Claude mobile app — code running on your
+Windows PC, reaching your servers through it:
+
+```powershell
+.\scripts\setup_claude_code.ps1     # one time
+.\scripts\start_remote_control.ps1  # each session
+```
+
+Then open the Claude app → **Code** tab and pick the session. Full guide,
+including SSH/database access and viewing the dashboard from your phone:
+**[docs/mobile-remote-control.md](docs/mobile-remote-control.md)**.
+
 ## Quick start (macOS / Linux)
 
 ```bash
@@ -70,10 +84,13 @@ src/poc_bi/metrics.py     Aggregations; no IO, no plotting
 src/poc_bi/theme.py       Chart palette and Plotly chrome
 scripts/setup.ps1         Windows environment setup (PowerShell)
 scripts/setup.bat         Windows environment setup (cmd.exe fallback)
+scripts/setup_claude_code.ps1     Install Claude Code + Remote Control preflight
+scripts/start_remote_control.ps1  Start a phone-drivable session (holds PC awake)
 scripts/verify_data.py    Data health check
 scripts/export_clean.py   Clean data out to Excel/CSV for Power BI or Excel
 tests/                    43 tests, mostly regression cover for the quirks
 docs/windows-setup.md     Full Windows guide + data dictionary
+docs/mobile-remote-control.md  Drive this machine from your phone
 ```
 
 The layering matters: **business logic lives in `metrics.py`, not in the app.**
